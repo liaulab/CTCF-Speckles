@@ -1,0 +1,103 @@
+---
+#title: "comp_sr105_v3"
+#author: Shelby Roseman
+---
+#load packages
+library(knitr)
+library(affy)
+library(limma)
+#library(rnaseqGene)
+library(DESeq2)
+library(pheatmap)
+library(biomaRt)
+library(png)
+library(ggplot2)
+library(gplots)
+#library(reshape)
+#library(ggpubr)
+library(colorRamps)
+library(brew)
+library(RColorBrewer)
+library(stringr)
+
+
+##load samples using a table of conditions
+
+directory <- ""
+
+samplefull = read.table("", header = TRUE, sep="\t")
+
+#make a dds object from the counts. use the full model, where each sample is considered independently
+dds = DESeqDataSetFromHTSeqCount(sampleTable= samplefull  , directory = directory, design=~ condition)
+dds = DESeq(dds)
+
+#check how the samples cluster
+vst <- vst(dds, blind=FALSE)
+plotPCA(vst, intgroup=c("condition"))
+
+#load biomart
+ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl")
+mart <- useMart(biomart = "ENSEMBL_MART_ENSEMBL",dataset= "hsapiens_gene_ensembl",host ="www.ensembl.org")
+
+  
+##{r getlfc between conditions} write a function to do this  across different comparisons
+returncomparison <- function(ddstype, compare, num, denom) {
+  name=paste0(num,denom)
+  name=paste0(directory,name)
+  res=results(ddstype, contrast=c(compare, num, denom), cooksCutoff=FALSE)
+  reso = res[order(res$padj,na.last = TRUE),]
+  resnona = reso[complete.cases(reso),]
+  resdata= data.frame(resnona)
+  gene_ids = rownames(resdata)
+  resdata$gene_ids <- gene_ids
+  G_list <- getBM(filters= "ensembl_gene_id", attributes= c("ensembl_gene_id","hgnc_symbol","chromosome_name","start_position","end_position","strand"),values=gene_ids,mart= ensembl,uniqueRows=TRUE ,useCache = FALSE)
+  resdata<-merge(resdata,G_list,by.x="gene_ids",by.y="ensembl_gene_id")
+  resdata=resdata[order(resdata$padj),]
+  return(resdata)
+}
+
+
+#run dnmt1i v dmso through the function to get differential gene expression
+wtDNMT1i_wtDMSO= returncomparison(dds, 'condition', 'wt_DNMT1i', 'wt_DMSO')
+
+#filter for differential genes
+lfc=.5
+pval=.05
+
+wtDNMT1i_wtDMSO_de = wtDNMT1i_wtDMSO[abs(wtDNMT1i_wtDMSO$log2FoldChange) > lfc & wtDNMT1i_wtDMSO$padj < pval, ]
+
+#combine the differential genes into one main dataframe and merge so each gene appears only once
+
+uniquegene <- unique(wtDNMT1i_wtDMSO_de$gene_ids)
+
+set.seed(1) #generate random number generator
+rld <- rlog(dds, blind = FALSE) #rlog transform the counts values for all genes
+
+
+mat <- assay(rld) #turn the rlog tranformed deseq object into a matrix we can manipulate
+
+mat2  <- mat[uniquegene,] #filter for unique differential genes
+matdf = as.data.frame(mat2) #convert to dataframe
+matdfsortrm <- matdf[ order(rowMeans(matdf),  decreasing = F), ] #sort by average expression across row
+
+#plot heatmaps w/ kmeans clusters- get the clusters
+pheat <- pheatmap(matdfsortrm ,kmeans_k=4, cluster_rows=FALSE, cluster_cols=FALSE, scale='row',  color = colorRampPalette(rev(brewer.pal(n = 7, name ="RdBu")))(100))
+
+matdfsortrm$clus <- pheat$kmeans$cluster #extract the cluster from the above plot and add onto matdfsortrm
+ynew <- c(1,2,3,4)
+matdforder = matdfsortrm[order((order(ynew)[matdfsortrm$clus])),] #reorder by cluster
+anno_row <- data.frame(matdforder$clus) # get a separate df with just the cluster in order
+anno_row$matdforder.clus <- paste("Cluster", anno_row$matdforder.clus, sep="_") #reformat the cluster naming convention
+reorderedmat = matdforder[,c(10, 11, 12, 7, 8, 9, 4, 5, 6, 1, 2, 3)] #reorder the columns for the final heatmap (same row order)
+mixed <- cbind(reorderedmat[,0], anno_row) #add the gene name to list of clusters
+#make heatmap with each row z scored. use the order above with ordered by clusters and increasing counts down the rows. add on cluster as annotation
+pheatmap(reorderedmat, cluster_rows=FALSE, cluster_cols=FALSE, scale='row',annotation_row = mixed, show_rownames = F, color = colorRampPalette(rev(brewer.pal(n = 7, name ="RdBu")))(100)) 
+
+
+######extract genes from each cluster
+gene1 = rownames(reorderedmat) # extract gene names from the final kmeans clustered ordered matrix
+G_list1 <- getBM(filters= "ensembl_gene_id", attributes= c("ensembl_gene_id","hgnc_symbol","chromosome_name","start_position","end_position","strand"),values=gene1,mart= ensembl, uniqueRows=TRUE ,useCache = FALSE) #add more gene info 
+matdfordergene<-merge(reorderedmat,G_list1,by.x=0,by.y="ensembl_gene_id", sort = FALSE) #add on gene info onto the genes from clusters
+matdfordergene$cluster <- matdforder[,13] #add the cluster as a column
+matdfordergene$chromosome_name=paste0("chr",matdfordergene$chromosome_name)  #add chr to each chromosometo make more standard naming
+write.table(matdfordergene, "", row.names=FALSE,sep="\t", quote = FALSE) #export as table
