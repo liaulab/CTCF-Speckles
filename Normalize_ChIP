@@ -1,0 +1,28 @@
+##generate input-normalized ChIP-seq bigwig files on Harvard Rocky8 cluster
+ 
+singularity run /n/singularity_images/FAS/centos7/compute-el7-noslurm-2023-03-29.sif
+
+module load samtools/0.1.19-fasrc02
+module load Anaconda3/5.0.1-fasrc01
+source activate deeptools
+
+## '*' represents sample name
+
+##index deduplicated bam files and get RPKM normalized bigwigs. Deduplicated bam files preprocessed as described in methods.
+
+samtools index *.dprm.bam
+
+bamCoverage -b *.dprm.bam  --normalizeUsing RPKM -o *.dprm_norm.bw
+
+#normalize by matched input control
+
+bigwigCompare -b1 *.dprm_norm.bw -b2 *_input.dprm_norm.bw --operation log2 --outFileName *_inputnormalized.bw -of bigwig -p max
+
+#map normalized reads per condition onto a master ChIP-seq peak list
+
+multiBigwigSummary BED-file -p max -b *_inputnormalized.bw *2_RPKM_inputnormalized.bw -o  summary.npz --BED Master_Peak_List.txt --outRawCounts summary.txt 
+
+#map on whether each peak is reactivated or normal
+bedtools map -a summary_sorted.txt -b Reactivates_Peak_list.bed -c 4 -o distinct -null "none" -header > summary_differentialnoted.txt
+
+#make scatterplot in python using seaborn scatterplot, colored by differential status
