@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Aug 25 10:12:49 2022
+
+@author: shelbyroseman
+##python code to identify highly-looping CTCF peaks
+"""
+#%% libraries
+import pandas as pd
+#import csv
+import numpy as np
+#import os.path
+import seaborn as sns
+import matplotlib.pyplot as plt
+from pybedtools import BedTool
+import pybedtools as pybed
+
+#%% plot params
+plt.rcParams.update(plt.rcParamsDefault)
+plt.rc('font', size=12)          # controls default text sizes
+plt.rc('axes', titlesize=14,)     # fontsize of the axes title
+plt.rc('axes', labelsize=13)    # fontsize of the x and y labels
+plt.rc('xtick', labelsize=12)    # fontsize of the tick labels
+plt.rc('ytick', labelsize=12 )    # fontsize of the tick labels
+plt.rc('legend', fontsize=12)    # legend fontsize
+plt.rc('figure', titlesize=16)  # fontsize of the figure title
+COLOR = 'k'
+plt.rcParams['text.color'] = COLOR
+plt.rcParams['axes.labelcolor'] = COLOR
+plt.rcParams['xtick.color'] = COLOR
+plt.rcParams['ytick.color'] = COLOR
+sns.set_style("ticks")
+#plt.rcParams['font.family'] = 'Arial'
+#plt.style.use('default')
+props = {
+    'boxprops':{ 'edgecolor':'black'},
+    'medianprops':{'color':'black'},
+    'whiskerprops':{'color':'black'},
+    'capprops':{'color':'black'}}
+plt.rcParams['pdf.fonttype'] = 42
+
+
+#%%
+#%% load file with each peak and the number of loops it makes (# of partners)
+df = pd.read_csv("",  sep="\t")
+
+#%% order peaks by number of different loops and make hockeystick plot
+dfsort = df.sort_values(by=['num_loops'])
+dfsort["rank"]=(list(range(0, 45488)))
+inputVectorload=dfsort["num_loops"]
+inputVector=np.array(inputVectorload)
+plt.scatter(x=dfsort["rank"],y=dfsort["num_loops"], marker=".")
+plt.ylabel("num_loops")
+plt.xlabel("rank")
+plt.show()
+
+#%% didnt do input normalization
+def numPts_below_line(x, myVector,slope):
+    yPt = myVector[x]
+    b = yPt-(slope*x)
+    xPts =np.array(list(range(0 ,len(myVector))),dtype="float")
+    return np.sum(myVector<=(xPts*slope+b))
+ #This function calculates the cutoff by sliding a diagonal line and finding where it is tangential (or as close as possible)
+def calculate_cutoff(inputvec):
+	#inputVector[inputVector<0]=0 #set those regions with more control than ranking equal to zero
+    inputVector=np.array(inputvec)
+    slope = (np.max(inputVector)-np.min(inputVector))/len(inputVector) #This is the slope of the line we want to slide. This is the diagonal.
+    xtest=np.array(list(range(0 ,len(inputVector))),dtype="int")
+    indexlist = []
+    for i in xtest:
+        print(i)
+        temp=[]
+        xPt = numPts_below_line(i, inputVector,slope)
+        temp.append(i)
+        temp.append(xPt)
+        indexlist.append(temp)
+        #Find the x-axis point where a line passing through that point has the minimum number of points below it. (ie. tangent)
+    s2 = np.array(indexlist)
+    minval= np.min(s2[:,1])
+    cutrank= np.where(s2[:,1]==minval)[0][0]
+    y_cutoff = inputVector[cutrank] #The y-value at this x point. This is our cutoff.
+    return(cutrank, y_cutoff, slope, y_cutoff-(slope*cutrank))
+    #return list(absolute=y_cutoff,overMedian=y_cutoff/median(inputVector),overMean=y_cutoff/mean(inputVector))
+#%%
+#this is an accessory function, that determines the number of points below a diagonal passing through [x,yPt]
+x, y, slope, b = calculate_cutoff(inputVector)
+#%%add the tangent line, identified from the function above, to the plot
+plt.scatter(x=dfsort["rank"],y=dfsort["num_loops"], marker=".",color="black" )
+plt.ylabel("num_loops")
+plt.xlabel("rank")
+xtest=np.array(list(range(40093, 44093)),dtype="int") 
+yvec=slope*xtest+b
+plt.plot(xtest,yvec, color="red")
+plt.ylabel("num_loops")
+plt.xlabel("Rank")
+plt.title("Identifying highly-looping peaks")
+plt.savefig("")
+plt.savefig("", dpi=600)
+plt.close()
