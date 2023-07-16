@@ -1,0 +1,61 @@
+## interactive script on Harvard RC Odyssey cluster
+#count number of loops (partners) per peak and per max-looping partner peak
+
+#activate pgltools
+export PATH=$PATH: /pgl_tools/pgltools-master/sh
+source new-modules.sh
+module load fasrc
+module load bedtools2/2.26.0-fasrc01
+
+
+## get the number of loops per CTCF peak##
+
+## '*' represents condition name
+
+##import and format pgl file from mango output file from Hichipper
+pgltools formatbedpe *.interactions.filt.mango > *.interactions.filt.pgl
+
+#get a full list of loop-peak intersections by comparing Hichipper loops to matched CTCF peaks.resulting file has each loop listed once per peak intersection, along with the coordinates of the overlapping peak.
+pgltools intersect1D -a *.interactions.filt.pgl -b *Peaks.txt -allA -wa -wb > *_peaks_formloops.txt
+
+# reformat the files so that just the CTCF peak for the overlap is listed.
+awk '{ print $10" "$11" "$12}' *_peaks_formloops.txt > *_peaks_formloops_peakonly.txt
+
+# add a 1 to the end of each row
+awk '{print $0, "1"}' *_peaks_formloops_peakonly.txt > c*_peaks_formloops_peakonly_1.txt
+
+# make tab delimited and sort
+awk -v OFS="\t" '$1=$1' *_peaks_formloops_peakonly_1.txt > *_peaks_formloops_peakonly_1t.txt
+
+bedtools sort -i *_peaks_formloops_peakonly_1t.txt > *_peaks_formloops_peakonly_sort.txt
+
+#collapse to sum number of times each peak is listed, so we have number of different loops each peak makes
+bedtools merge -i *_peaks_formloops_peakonly_sort.txt -c 4 -o sum > *_peaks_formloops_peakonly_merge.txt
+
+#map back onto the original annotated ChIP-seq peakfiles, so you have number of loops per peak along with annotations
+
+bedtools map -a Peaks.txt -b *__peaks_formloops_peakonly_merge.txt -o distinct -null "0" -c 4 > *__peaks_annotated_numloops.txt
+
+
+##get number of loops per partner##
+
+##take *_peaks_formloops.txt files and use python script to rearrange the files such that the partner is listed first. output files are *_peaks_formloops_partner_listed_first
+
+##Next, we need to use bedtools map to map on the number of loops the partner makes. 
+
+bedtools sort -i *_peaks_formloops_partner_listed_first -header > *_peaks_formloops_partner_listed_first_sort.txt
+
+bedtools map -a *_peaks_formloops_partner_listed_first_sort.txt -b *_peaks_annotated_numloops.txt -c 19 -o max -header -null "0" > *_peaks_formloops_partner_listed_first_num_loops_partner.txt
+
+##finally, reformat such that the original peak is again listed first and make tab delimited
+
+awk '{ print $4" "$5" "$6" "$7}' *_peaks_formloops_partner_listed_first_num_loops_partner.txt > *_peaks_formloops_num_loops_partner_mainpeak_listed.txt
+
+awk -v OFS="\t" '$1=$1' *_peaks_formloops_num_loops_partner_mainpeak_listed.txt > *_peaks_formloops_num_loops_partner_mainpeak_listed_t.txt
+
+
+# map the maximally looping partner per original CTCF peak back onto original peak file
+
+bedtools sort -i *_peaks_formloops_num_loops_partner_mainpeak_listed_t.txt -header > *_peaks_formloops_num_loops_partner_mainpeak_listed_sort.txt
+
+bedtools map -a *_peaks_annotated_numloops.txt -b comp_sr83_${j}_peaks_formloops_num_loops_partner_mainpeak_listed_sort.txt -c 4 -o max -header > *_peaks_annotated_numloops_peak_numloops_partner.txt
