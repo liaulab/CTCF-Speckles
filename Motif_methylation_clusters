@@ -1,0 +1,28 @@
+##code for Harvard Odyssey cluster
+##make motif methylation heatmaps- adapting workflow on Deeptools documentation for stranded matrices
+
+module load Anaconda3/5.0.1-fasrc01
+source activate deeptools
+
+#use deeptools to make a matrix of cpg methylation percent over gained peak motifs identified by scanmotifs. use separate stranded bigwigs
+computeMatrix  reference-point -S ENCFF430PNX.bigWig ENCFF459XNY.bigWig -R scanmotifs_ctcf_K562_annotated_gponly.bed -bs 1 -a 19 -b 0 --referencePoint TSS --outFileName cpgme_over_gp_motifs_k562.gz -p max --missingDataAsZero
+
+#Create two new files, each containing only the samples containing signal from a given strand.
+
+computeMatrixOperations subset -cpgme_over_gp_motifs_k562.gz -o cpgme_over_gp_motifs_k562_F.gz --samples ENCFF459XNY
+
+computeMatrixOperations subset -m cpgme_over_gp_motifs_k562.gz -o cpgme_over_gp_motifs_k562_R.gz --samples ENCFF430PNX
+
+#These files can then be subset to contain only cpgs on a particular strand.
+
+computeMatrixOperations filterStrand -m cpgme_over_gp_motifs_k562_F.gz -o cpgme_over_gp_motifs_k562_F.subset.gz --strand +
+computeMatrixOperations filterStrand -m cpgme_over_gp_motifs_k562_R.gz -o cpgme_over_gp_motifs_k562_R.subset.gz --strand -
+
+#Finally, the files can be merged back together, head to tail. The samples are already in the correct order, as indicated by step 3.
+
+computeMatrixOperations rbind -m cpgme_over_gp_motifs_k562_F.subset.gz cpgme_over_gp_motifs_k562_R.subset.gz -o gp_merged_k562.gz
+
+#plot w/ kmeans
+
+
+plotHeatmap -m gp_merged_k562.gz --outFileName gp_merged_k562_kmeans4.pdf --plotFileFormat pdf --kmeans 4 --colorMap Blues --outFileSortedRegions gp_merged_K562_kmeans4_regions.bed
