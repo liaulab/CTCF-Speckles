@@ -1,0 +1,36 @@
+## R script to process HiChipper loop files into Diffloops summary with loop strength and fold change per loop
+
+####{r loadpackages}
+library(diffloop)
+library(diffloopdata)
+library(ggplot2)
+library(GenomicRanges)
+library(ggrepel)
+library(DESeq2)
+
+#####{r readfiles} import mango hichipper output files for 2 reps each of DMSO and DNMT1i
+bed_dir = ""
+full = loopsMake.mango(bed_dir, mergegap = 500, ext = "all")
+conditions <- c("DMSO", "DMSO", "DNMT1i", "DNMT1i")
+full <- updateLDGroups(full, conditions)
+
+#Quality control and loop subsetting
+full <- subsetLoops(full, full@rowData$loopWidth >= 5000)  #remove merged anchors from import function-none this time
+full <- mangoCorrection(full, FDR = 0.01)  # filter mango biased regions
+full <- subsetLoops(full, rowSums(full@counts) >= 8)  #remove loops with <8 PETs amongst samples
+
+##did not remove CNV regions- do only one cell type at a time
+#filter out loops that only appear in one replicate strongly and not in other rep
+cm <- full@counts    
+DMSO_dis <- ((cm[,1]>=5 &cm[,2]==0)|(cm[,2]>=5&cm[,1]==0))
+DNMT1i_dis <- ((cm[,3]>=5 &cm[,4]==0)|(cm[,4]>=5&cm[,3]==0))
+full <- subsetLoops(full, !(DMSO_dis | DNMT1i_dis))
+
+
+#get differential looping calls through running diffloops quickAssoc
+full_res <- quickAssoc(full)
+
+#get summary file reporting the loops and their strength and fold change DNMT1i to DMSO
+summary=summary(full_res)
+
+write.table(summary, "", sep="\t",  row.names=FALSE)
